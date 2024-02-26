@@ -1,5 +1,4 @@
 # importing libraries needed
-import os
 import time
 
 import cv2
@@ -8,8 +7,6 @@ from ultralytics import YOLO
 
 
 def apply_invisible_cloak(frame, background, result) -> np.ndarray:
-    ###? hmmmm returning the frame instead of the background doesn't work
-
     # If there is no detection, return the original frame
     if result.masks is None:
         return frame
@@ -38,13 +35,24 @@ def apply_invisible_cloak(frame, background, result) -> np.ndarray:
         background_mask = cv2.bitwise_not(person_mask)
 
         # Hide the person
-        back = cv2.bitwise_and(frame, frame, mask=background_mask)
+        new_background = cv2.bitwise_and(frame, frame, mask=background_mask)
 
         # Extract the background
-        fore = cv2.bitwise_and(background, background, mask=person_mask)
+        extracted_background = cv2.bitwise_and(background, background, mask=person_mask)
 
         # Generating the final output
-        frame = cv2.addWeighted(back, 1, fore, 1, 0)
+        frame = cv2.add(extracted_background, new_background)
+
+    return frame
+
+
+def draw_fps(frame, start_time, frame_count):
+    # Calculate the FPS
+    fps = frame_count / (time.time() - start_time)
+    fps = f"FPS: {fps:.2f}"
+
+    # Draw the FPS on the frame
+    cv2.putText(frame, fps, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
     return frame
 
@@ -63,32 +71,48 @@ def main():
     _, background = video_capture.read()
     for _ in range(45):
         _, background = video_capture.read()
+    background = cv2.flip(background, 1)
 
     # The Main loop
     inv_cloak = False
+    show_fps = False
+    show_segmented = False
     while video_capture.isOpened():
         ret, frame = video_capture.read()
         if not ret:
             break
 
+        result = None
+        start_time = time.time()
         frame = cv2.flip(frame, 1)
 
-        # Getting the output from YOLO
-        result = model.predict(frame, half=True)[0]
-
-        # Show the segmented output
+        # Getting the key pressed
         key = cv2.waitKey(25)
-        if key == ord("s"):
-            frame = result.plot()
 
-        # Apply the invisible cloak
+        # Handling the key presses
         if key == ord("c"):
             inv_cloak = not inv_cloak
+        elif key == ord("f"):
+            show_fps = not show_fps
+        elif key == ord("s"):
+            show_segmented = not show_segmented
 
+        # Apply the invisible cloak
         if inv_cloak:
+            result = result or model.predict(frame, half=True)[0]
             frame = apply_invisible_cloak(frame, background, result)
+            # background = frame.copy() #! still experimenting with this
 
-        cv2.imshow("Thankyou_Dumbledore", frame)
+        # Show the segmented output
+        if show_segmented:
+            result = result or model.predict(frame, half=True)[0]
+            frame = result.plot(img=frame)
+
+        # Draw the FPS
+        if show_fps:
+            frame = draw_fps(frame, start_time, 1)
+
+        cv2.imshow("Dumbledore's Army", frame)
         if key == ord("q"):
             break
 
