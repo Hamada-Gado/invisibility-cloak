@@ -7,6 +7,14 @@ from ultralytics import YOLO
 
 
 def apply_invisible_cloak(frame, background, result) -> np.ndarray:
+    """
+    Apply the invisible cloak effect to the frame
+    :param frame: The input frame
+    :param background: The background frame
+    :param result: The result of the YOLO model
+    :return: The frame with the invisible cloak effect
+    """
+
     # If there is no detection, return the original frame
     if result.masks is None:
         return frame
@@ -31,6 +39,13 @@ def apply_invisible_cloak(frame, background, result) -> np.ndarray:
         person_mask = mask.cpu().numpy().astype(np.uint8) * 255
         person_mask = cv2.resize(person_mask, (frame.shape[1], frame.shape[0]))
 
+        # Apply post-processing to the mask
+        person_mask = cv2.morphologyEx(
+            person_mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8)
+        )
+        person_mask = cv2.dilate(person_mask, np.ones((5, 5), np.uint8), iterations=1)
+        person_mask = cv2.medianBlur(person_mask, 5)
+
         # Invert the mask
         background_mask = cv2.bitwise_not(person_mask)
 
@@ -41,18 +56,26 @@ def apply_invisible_cloak(frame, background, result) -> np.ndarray:
         extracted_background = cv2.bitwise_and(background, background, mask=person_mask)
 
         # Generating the final output
-        frame = cv2.add(extracted_background, new_background)
+        frame = cv2.addWeighted(extracted_background, 1, new_background, 1, 0)
 
     return frame
 
 
 def draw_fps(frame, start_time, frame_count):
+    """
+    Draw the FPS on the frame
+    :param frame: The input frame
+    :param start_time: The start time of the frame
+    :param frame_count: The frame count
+    :return: The frame with the FPS
+    """
+
     # Calculate the FPS
     fps = frame_count / (time.time() - start_time)
     fps = f"FPS: {fps:.2f}"
 
     # Draw the FPS on the frame
-    cv2.putText(frame, fps, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    cv2.putText(frame, fps, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 175, 200), 2)
 
     return frame
 
@@ -60,16 +83,16 @@ def draw_fps(frame, start_time, frame_count):
 def main():
     # capturing the video
     video_capture = cv2.VideoCapture(1)
+    video_output = cv2.VideoWriter(
+        "output.mp4", cv2.VideoWriter_fourcc(*"XVID"), 30, (640, 480)
+    )
 
     # making an object of YOLO
-    model = YOLO("yolov8n-seg.pt")
-
-    # let the camera warm up
-    time.sleep(3)
+    model = YOLO("yolov8m-seg.pt")
 
     # capturing the background
     _, background = video_capture.read()
-    for _ in range(45):
+    for _ in range(30):
         _, background = video_capture.read()
     background = cv2.flip(background, 1)
 
@@ -96,16 +119,27 @@ def main():
             show_fps = not show_fps
         elif key == ord("s"):
             show_segmented = not show_segmented
+        elif key == ord("q"):
+            break
+        elif key == ord("r"):
+            for _ in range(5):
+                _, background = video_capture.read()
+            background = cv2.flip(background, 1)
 
         # Apply the invisible cloak
         if inv_cloak:
-            result = result or model.predict(frame, half=True)[0]
+            # result = result or model.predict(frame, half=True)[0]
+            result = result or model.track(frame, persist=True, half=True)[0]
             frame = apply_invisible_cloak(frame, background, result)
-            # background = frame.copy() #! still experimenting with this
+
+            #! still experimenting with this, DON'T UNCOMMENT
+            # It works better with bigger models, but still may need some post-processing on the masks
+            # background = frame.copy()
 
         # Show the segmented output
         if show_segmented:
-            result = result or model.predict(frame, half=True)[0]
+            # result = result or model.predict(frame, half=True)[0]
+            result = result or model.track(frame, persist=True, half=True)[0]
             frame = result.plot(img=frame)
 
         # Draw the FPS
@@ -113,11 +147,11 @@ def main():
             frame = draw_fps(frame, start_time, 1)
 
         cv2.imshow("Dumbledore's Army", frame)
-        if key == ord("q"):
-            break
+        video_output.write(frame)
 
     video_capture.release()
     cv2.destroyAllWindows()
+    video_output.release()
 
 
 if __name__ == "__main__":
