@@ -1,9 +1,34 @@
 # importing libraries needed
 import time
+import logging
 
 import cv2
 import numpy as np
 from ultralytics import YOLO
+
+
+def set_logger(name="YOLO"):
+    """
+    Set the logger for the YOLO model
+    """
+
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+
+    # Create console handler
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+
+    # Create formatter and add it to the handlers
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    ch.setFormatter(formatter)
+
+    # Add the handlers to the logger
+    logger.addHandler(ch)
+
+    return logger
 
 
 def apply_invisible_cloak(frame, background, result) -> np.ndarray:
@@ -40,11 +65,18 @@ def apply_invisible_cloak(frame, background, result) -> np.ndarray:
         person_mask = cv2.resize(person_mask, (frame.shape[1], frame.shape[0]))
 
         # Apply post-processing to the mask
+        start = time.perf_counter_ns()
         person_mask = cv2.morphologyEx(
-            person_mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8)
+            person_mask, cv2.MORPH_DILATE, np.ones((5, 5), np.uint8)
         )
-        person_mask = cv2.dilate(person_mask, np.ones((5, 5), np.uint8), iterations=1)
+        person_mask = cv2.morphologyEx(
+            person_mask, cv2.MORPH_DILATE, np.ones((5, 5), np.uint8)
+        )
         person_mask = cv2.medianBlur(person_mask, 5)
+        end = time.perf_counter_ns()
+        logging.getLogger("YOLO").info(
+            f"Mask Post-processing time: {(end - start) * 1e-6:.2f} ms"
+        )
 
         # Invert the mask
         background_mask = cv2.bitwise_not(person_mask)
@@ -71,7 +103,7 @@ def draw_fps(frame, start_time, frame_count):
     """
 
     # Calculate the FPS
-    fps = frame_count / (time.time() - start_time)
+    fps = frame_count / (time.perf_counter() - start_time)
     fps = f"FPS: {fps:.2f}"
 
     # Draw the FPS on the frame
@@ -81,14 +113,17 @@ def draw_fps(frame, start_time, frame_count):
 
 
 def main():
+    # setting the logger
+    set_logger()
+
     # capturing the video
     video_capture = cv2.VideoCapture(1)
     video_output = cv2.VideoWriter(
-        "output.mp4", cv2.VideoWriter_fourcc(*"XVID"), 30, (640, 480)
+        "output.mp4", cv2.VideoWriter_fourcc(*"mp4v"), 30, (640, 480)
     )
 
     # making an object of YOLO
-    model = YOLO("yolov8m-seg.pt")
+    model = YOLO("yolov8s-seg.pt")
 
     # capturing the background
     _, background = video_capture.read()
@@ -106,7 +141,7 @@ def main():
             break
 
         result = None
-        start_time = time.time()
+        start_time = time.perf_counter()
         frame = cv2.flip(frame, 1)
 
         # Getting the key pressed
@@ -128,17 +163,15 @@ def main():
 
         # Apply the invisible cloak
         if inv_cloak:
-            # result = result or model.predict(frame, half=True)[0]
             result = result or model.track(frame, persist=True, half=True)[0]
             frame = apply_invisible_cloak(frame, background, result)
 
             #! still experimenting with this, DON'T UNCOMMENT
-            # It works better with bigger models, but still may need some post-processing on the masks
+            # It works better with bigger models, but still may need some post-processing
             # background = frame.copy()
 
         # Show the segmented output
         if show_segmented:
-            # result = result or model.predict(frame, half=True)[0]
             result = result or model.track(frame, persist=True, half=True)[0]
             frame = result.plot(img=frame)
 
