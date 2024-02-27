@@ -17,12 +17,10 @@ def set_logger(name="YOLO"):
 
     # Create console handler
     ch = logging.StreamHandler()
-    ch.setLevel(logging.INFO)
+    ch.setLevel(logging.DEBUG)
 
     # Create formatter and add it to the handlers
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(name)s - %(levelname)s - %(message)s")
     ch.setFormatter(formatter)
 
     # Add the handlers to the logger
@@ -45,34 +43,28 @@ def apply_invisible_cloak(frame, background, result) -> np.ndarray:
         return frame
 
     # Extracting the boxes and masks
-    data = [
-        (box, mask)
-        for box, mask in zip(result.boxes, result.masks.data)
-        if box.cls == 0
-    ]
+    masks = [mask for box, mask in zip(result.boxes, result.masks.data) if box.cls == 0]
 
     # If there are no people, return the original frame
-    if len(data) == 0:
+    if len(masks) == 0:
         return frame
 
-    for box, mask in data:
-        # If the object is not a person, skip it
-        if box.cls != 0:
-            continue
-
+    for mask in masks:
         # Convert the mask to a format that OpenCV can use
         person_mask = mask.cpu().numpy().astype(np.uint8) * 255
         person_mask = cv2.resize(person_mask, (frame.shape[1], frame.shape[0]))
 
         # Apply post-processing to the mask
         start = time.perf_counter_ns()
+
         person_mask = cv2.morphologyEx(
-            person_mask, cv2.MORPH_DILATE, np.ones((5, 5), np.uint8)
+            person_mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8)
         )
         person_mask = cv2.morphologyEx(
             person_mask, cv2.MORPH_DILATE, np.ones((5, 5), np.uint8)
         )
         person_mask = cv2.medianBlur(person_mask, 5)
+
         end = time.perf_counter_ns()
         logging.getLogger("YOLO").info(
             f"Mask Post-processing time: {(end - start) * 1e-6:.2f} ms"
@@ -118,6 +110,10 @@ def main():
 
     # capturing the video
     video_capture = cv2.VideoCapture(1)
+    video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+    # creating a video writer
     video_output = cv2.VideoWriter(
         "output.mp4", cv2.VideoWriter_fourcc(*"mp4v"), 30, (640, 480)
     )
@@ -127,7 +123,7 @@ def main():
 
     # capturing the background
     _, background = video_capture.read()
-    for _ in range(30):
+    for _ in range(5):
         _, background = video_capture.read()
     background = cv2.flip(background, 1)
 
@@ -135,6 +131,7 @@ def main():
     inv_cloak = False
     show_fps = False
     show_segmented = False
+
     while video_capture.isOpened():
         ret, frame = video_capture.read()
         if not ret:
@@ -144,35 +141,29 @@ def main():
         start_time = time.perf_counter()
         frame = cv2.flip(frame, 1)
 
-        # Getting the key pressed
-        key = cv2.waitKey(25)
-
         # Handling the key presses
+        key = cv2.waitKey(1)
         if key == ord("c"):
             inv_cloak = not inv_cloak
         elif key == ord("f"):
             show_fps = not show_fps
         elif key == ord("s"):
             show_segmented = not show_segmented
-        elif key == ord("q"):
-            break
         elif key == ord("r"):
             for _ in range(5):
                 _, background = video_capture.read()
             background = cv2.flip(background, 1)
+        elif key == ord("q"):
+            break
 
         # Apply the invisible cloak
         if inv_cloak:
-            result = result or model.track(frame, persist=True, half=True)[0]
+            result = result or model.track(frame, persist=True)[0]
             frame = apply_invisible_cloak(frame, background, result)
-
-            #! still experimenting with this, DON'T UNCOMMENT
-            # It works better with bigger models, but still may need some post-processing
-            # background = frame.copy()
 
         # Show the segmented output
         if show_segmented:
-            result = result or model.track(frame, persist=True, half=True)[0]
+            result = result or model.track(frame, persist=True)[0]
             frame = result.plot(img=frame)
 
         # Draw the FPS
