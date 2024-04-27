@@ -1,6 +1,6 @@
 # importing libraries needed
-import time
 import logging
+import time
 
 import cv2
 import numpy as np
@@ -58,10 +58,10 @@ def apply_invisible_cloak(frame, background, result) -> np.ndarray:
         start = time.perf_counter_ns()
 
         person_mask = cv2.morphologyEx(
-            person_mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8)
+            person_mask, cv2.MORPH_OPEN, np.ones((15, 15), np.uint8)
         )
         person_mask = cv2.morphologyEx(
-            person_mask, cv2.MORPH_DILATE, np.ones((5, 5), np.uint8)
+            person_mask, cv2.MORPH_DILATE, np.ones((15, 15), np.uint8)
         )
         person_mask = cv2.medianBlur(person_mask, 5)
 
@@ -110,12 +110,11 @@ def main():
 
     # capturing the video
     video_capture = cv2.VideoCapture(1)
-    video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
     # creating a video writer
     video_output = cv2.VideoWriter(
-        "output.mp4", cv2.VideoWriter_fourcc(*"mp4v"), 30, (640, 480)
+        "output.mp4", cv2.VideoWriter_fourcc(*"MP4V"), 30, 
+        (int(video_capture.get(3)), int(video_capture.get(4)))
     )
 
     # making an object of YOLO
